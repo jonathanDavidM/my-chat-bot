@@ -1,17 +1,22 @@
 import Groq from "groq-sdk";
 import { JONATHAN_KNOWLEDGE } from "../knowledge/jonathan.js";
-import { loadDocuments } from "./docs.service.js";
+import { COMPILED_DOCS } from "../knowledge/compiled-docs.js";
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
 
+const systemPrompt = COMPILED_DOCS
+  ? JONATHAN_KNOWLEDGE +
+    "\n\n## Additional Documents & References\n" +
+    "The following are contents from Jonathan's uploaded documents (resume, etc.). Use this information to answer questions accurately.\n" +
+    COMPILED_DOCS
+  : JONATHAN_KNOWLEDGE;
+
 export class GeminiService {
   private groq: Groq;
   private conversationHistory: Map<string, ChatMessage[]> = new Map();
-  private systemPrompt: string = JONATHAN_KNOWLEDGE;
-  private initialized = false;
 
   constructor() {
     const apiKey = process.env.GROQ_API_KEY;
@@ -21,26 +26,11 @@ export class GeminiService {
     this.groq = new Groq({ apiKey });
   }
 
-  private async init() {
-    if (this.initialized) return;
-    const docs = await loadDocuments();
-    if (docs) {
-      this.systemPrompt =
-        JONATHAN_KNOWLEDGE +
-        "\n\n## Additional Documents & References\n" +
-        "The following are contents from Jonathan's uploaded documents (resume, etc.). Use this information to answer questions accurately.\n" +
-        docs;
-    }
-    this.initialized = true;
-  }
-
   async chat(sessionId: string, userMessage: string): Promise<string> {
-    await this.init();
-
     const history = this.conversationHistory.get(sessionId) || [];
 
     const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
-      { role: "system", content: this.systemPrompt },
+      { role: "system", content: systemPrompt },
       ...history,
       { role: "user", content: userMessage },
     ];
