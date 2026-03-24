@@ -1,6 +1,8 @@
-import { MessageCircle, X, Send, Bot, User } from "lucide-react";
+import { X, Send, User } from "lucide-react";
 import { useChatWidget, type ChatMessage } from "@/hooks/useChatWidget";
 import { cn } from "@/lib/utils";
+import askMeLogo from "@/assets/ask-me-logo.png";
+import askMeBubble from "@/assets/ask-me-bubble.png";
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
@@ -15,7 +17,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           isUser ? "bg-primary text-primary-foreground" : "bg-muted"
         )}
       >
-        {isUser ? <User className="size-4" /> : <Bot className="size-4" />}
+        {isUser ? <User className="size-4" /> : <img src={askMeLogo} alt="Bot" className="size-5 rounded-full" />}
       </div>
       <div
         className={cn(
@@ -35,7 +37,7 @@ function TypingIndicator() {
   return (
     <div className="flex gap-2">
       <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
-        <Bot className="size-4" />
+        <img src={askMeLogo} alt="Bot" className="size-5 rounded-full" />
       </div>
       <div className="rounded-2xl rounded-bl-md bg-muted px-4 py-3">
         <div className="flex gap-1">
@@ -75,7 +77,7 @@ export default function ChatWidget() {
           {/* Header */}
           <div className="flex items-center justify-between bg-primary px-4 py-3">
             <div className="flex items-center gap-2">
-              <Bot className="size-5 text-primary-foreground" />
+              <img src={askMeLogo} alt="Bot" className="size-6 rounded-full" />
               <div>
                 <p className="text-sm font-semibold text-primary-foreground">
                   Chat with Jonathan's AI
@@ -130,16 +132,14 @@ export default function ChatWidget() {
       <button
         onClick={toggle}
         className={cn(
-          "flex size-14 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105",
-          isOpen
-            ? "bg-muted text-foreground"
-            : "bg-primary text-primary-foreground"
+          "flex size-14 items-center justify-center rounded-full transition-all hover:scale-105",
+          isOpen ? "bg-muted text-foreground shadow-lg" : ""
         )}
       >
         {isOpen ? (
           <X className="size-6" />
         ) : (
-          <MessageCircle className="size-6" />
+          <img src={askMeBubble} alt="Chat" className="size-14" />
         )}
       </button>
     </div>
