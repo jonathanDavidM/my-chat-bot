@@ -1,5 +1,5 @@
 {
-  "buildCommand": "node scripts/build-knowledge.mjs && npm run build",
+  "buildCommand": "node scripts/build-knowledge.mjs && npm run build && npm run build:embed && cp -r dist-embed dist/embed",
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
