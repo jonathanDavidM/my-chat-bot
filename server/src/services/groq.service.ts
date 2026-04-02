@@ -14,7 +14,7 @@ const systemPrompt = COMPILED_DOCS
     COMPILED_DOCS
   : JONATHAN_KNOWLEDGE;
 
-export class GeminiService {
+export class GroqService {
   private groq: Groq;
   private conversationHistory: Map<string, ChatMessage[]> = new Map();
 

@@ -1,13 +1,13 @@
 import { Request, Response } from "express";
-import { GeminiService } from "../services/gemini.service.js";
+import { GroqService } from "../services/groq.service.js";
 
-let geminiService: GeminiService | null = null;
+let groqService: GroqService | null = null;
 
-function getGeminiService() {
-  if (!geminiService) {
-    geminiService = new GeminiService();
+function getGroqService() {
+  if (!groqService) {
+    groqService = new GroqService();
   }
-  return geminiService;
+  return groqService;
 }
 
 export const sendMessage = async (
@@ -42,7 +42,7 @@ export const sendMessage = async (
       return;
     }
 
-    const reply = await getGeminiService().chat(sessionId, message);
+    const reply = await getGroqService().chat(sessionId, message);
 
     res.json({
       success: true,
