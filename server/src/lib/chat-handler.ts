@@ -74,7 +74,7 @@ export function checkRateLimit(key: string): { allowed: boolean; retryAfterSec?:
   return { allowed: true };
 }
 
-export async function runChat(input: ChatRequest): Promise<string> {
+export async function* streamChat(input: ChatRequest): AsyncGenerator<string> {
   const history = input.history ?? [];
   const messages = [
     { role: "system" as const, content: SYSTEM_PROMPT },
@@ -82,17 +82,19 @@ export async function runChat(input: ChatRequest): Promise<string> {
     { role: "user" as const, content: input.message },
   ];
 
-  const completion = await getGroq().chat.completions.create(
+  const stream = await getGroq().chat.completions.create(
     {
       model: "llama-3.3-70b-versatile",
       messages,
       max_tokens: 300,
       temperature: 0.7,
+      stream: true,
     },
     { timeout: GROQ_TIMEOUT_MS }
   );
 
-  return (
-    completion.choices[0]?.message?.content ?? "Sorry, I couldn't generate a response."
-  );
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (delta) yield delta;
+  }
 }

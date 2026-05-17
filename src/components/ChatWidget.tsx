@@ -4,13 +4,22 @@ import { cn } from "@/lib/utils";
 import askMeLogo from "@/assets/ask-me-logo.png";
 import askMeBubble from "@/assets/ask-me-bubble.png";
 
+function TypingDots() {
+  return (
+    <div className="flex gap-1">
+      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:0ms]" />
+      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:150ms]" />
+      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:300ms]" />
+    </div>
+  );
+}
+
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
+  const isEmptyAssistant = !isUser && message.content.length === 0;
 
   return (
-    <div
-      className={cn("flex gap-2", isUser ? "flex-row-reverse" : "flex-row")}
-    >
+    <div className={cn("flex gap-2", isUser ? "flex-row-reverse" : "flex-row")}>
       <div
         className={cn(
           "flex size-7 shrink-0 items-center justify-center rounded-full",
@@ -27,24 +36,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             : "rounded-bl-md bg-muted text-foreground"
         )}
       >
-        {message.content}
-      </div>
-    </div>
-  );
-}
-
-function TypingIndicator() {
-  return (
-    <div className="flex gap-2">
-      <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted">
-        <img src={askMeLogo} alt="Bot" className="size-5 rounded-full" />
-      </div>
-      <div className="rounded-2xl rounded-bl-md bg-muted px-4 py-3">
-        <div className="flex gap-1">
-          <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:0ms]" />
-          <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:150ms]" />
-          <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:300ms]" />
-        </div>
+        {isEmptyAssistant ? <TypingDots /> : message.content}
       </div>
     </div>
   );
@@ -103,7 +95,6 @@ export default function ChatWidget() {
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
-            {isLoading && <TypingIndicator />}
             <div ref={messagesEndRef} />
           </div>
 

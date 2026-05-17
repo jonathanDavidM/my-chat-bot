@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { sendChatMessage, type HistoryMessage } from "@/lib/api";
+import { streamChatMessage, type HistoryMessage } from "@/lib/api";
 
 export interface ChatMessage {
   id: string;
@@ -10,6 +10,11 @@ export interface ChatMessage {
 
 const HISTORY_LIMIT = 10;
 const SESSION_KEY = "chat-widget-session";
+
+const REVEAL_INTERVAL_MS = 28;
+const REVEAL_CHARS_NORMAL = 1;
+const REVEAL_CHARS_CATCHUP = 4;
+const CATCHUP_BUFFER_THRESHOLD = 120;
 
 function newId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -63,39 +68,75 @@ export function useChatWidget() {
       content: trimmed,
       timestamp: new Date(),
     };
+    const assistantId = newId();
+    const assistantPlaceholder: ChatMessage = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+    };
 
     const history: HistoryMessage[] = messagesRef.current
       .filter((m) => m.id !== "welcome")
       .slice(-HISTORY_LIMIT)
       .map((m) => ({ role: m.role, content: m.content }));
 
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => [...prev, userMessage, assistantPlaceholder]);
     setInput("");
     setIsLoading(true);
 
+    let pending = "";
+    let streamDone = false;
+    let receivedAny = false;
+
+    const revealTimer = window.setInterval(() => {
+      if (pending.length === 0) {
+        if (streamDone) {
+          window.clearInterval(revealTimer);
+          setIsLoading(false);
+        }
+        return;
+      }
+      const take =
+        streamDone && pending.length > CATCHUP_BUFFER_THRESHOLD
+          ? REVEAL_CHARS_CATCHUP
+          : REVEAL_CHARS_NORMAL;
+      const slice = pending.slice(0, take);
+      pending = pending.slice(take);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId ? { ...m, content: m.content + slice } : m
+        )
+      );
+    }, REVEAL_INTERVAL_MS);
+
     try {
-      const response = await sendChatMessage(trimmed, sessionId.current, history);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newId(),
-          role: "assistant",
-          content: response.message,
-          timestamp: new Date(),
+      await streamChatMessage({
+        message: trimmed,
+        sessionId: sessionId.current,
+        history,
+        onChunk(chunk) {
+          receivedAny = true;
+          pending += chunk;
         },
-      ]);
+      });
+      streamDone = true;
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newId(),
-          role: "assistant",
-          content: "Sorry, I'm having trouble right now. Please try again!",
-          timestamp: new Date(),
-        },
-      ]);
-    } finally {
+      streamDone = true;
+      window.clearInterval(revealTimer);
       setIsLoading(false);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                content: receivedAny
+                  ? m.content + pending + "\n\n[response interrupted]"
+                  : "Sorry, I'm having trouble right now. Please try again!",
+              }
+            : m
+        )
+      );
     }
   }, [input, isLoading]);
 

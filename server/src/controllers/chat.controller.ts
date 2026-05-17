@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import {
   chatRequestSchema,
   checkRateLimit,
-  runChat,
+  streamChat,
 } from "../lib/chat-handler.js";
 
 function clientKey(req: Request): string {
@@ -25,14 +25,21 @@ export const sendMessage = async (req: Request, res: Response): Promise<void> =>
     return;
   }
 
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
   try {
-    const reply = await runChat(parsed.data);
-    res.json({ success: true, message: reply });
+    for await (const chunk of streamChat(parsed.data)) {
+      res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+    }
+    res.write("data: [DONE]\n\n");
+    res.end();
   } catch (error) {
     console.error("Chat error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Sorry, I'm having trouble responding right now. Please try again.",
-    });
+    res.write(`data: ${JSON.stringify({ error: "stream_failed" })}\n\n`);
+    res.end();
   }
 };

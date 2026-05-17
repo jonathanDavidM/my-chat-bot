@@ -3,7 +3,7 @@ import {
   chatRequestSchema,
   checkRateLimit,
   resolveAllowedOrigin,
-  runChat,
+  streamChat,
 } from "../../server/src/lib/chat-handler.js";
 
 function applyCors(req: VercelRequest, res: VercelResponse) {
@@ -49,14 +49,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ success: false, message: "Invalid request" });
   }
 
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
   try {
-    const reply = await runChat(parsed.data);
-    return res.json({ success: true, message: reply });
+    for await (const chunk of streamChat(parsed.data)) {
+      res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+    }
+    res.write("data: [DONE]\n\n");
+    res.end();
   } catch (error) {
     console.error("Chat error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Sorry, I'm having trouble responding right now. Please try again.",
-    });
+    res.write(`data: ${JSON.stringify({ error: "stream_failed" })}\n\n`);
+    res.end();
   }
 }
