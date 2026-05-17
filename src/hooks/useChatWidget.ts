@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { sendChatMessage } from "@/lib/api";
+import { sendChatMessage, type HistoryMessage } from "@/lib/api";
 
 export interface ChatMessage {
   id: string;
@@ -8,18 +8,22 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-function generateId() {
-  return Math.random().toString(36).substring(2, 9);
+const HISTORY_LIMIT = 10;
+const SESSION_KEY = "chat-widget-session";
+
+function newId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function getSessionId() {
-  const key = "chat-widget-session";
-  let sessionId = sessionStorage.getItem(key);
-  if (!sessionId) {
-    sessionId = generateId() + "-" + Date.now();
-    sessionStorage.setItem(key, sessionId);
+  let id = sessionStorage.getItem(SESSION_KEY);
+  if (!id) {
+    id = newId();
+    sessionStorage.setItem(SESSION_KEY, id);
   }
-  return sessionId;
+  return id;
 }
 
 export function useChatWidget() {
@@ -38,51 +42,58 @@ export function useChatWidget() {
   const sessionId = useRef(getSessionId());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
+
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const sendMessage = useCallback(async () => {
     const trimmed = input.trim();
     if (!trimmed || isLoading) return;
 
     const userMessage: ChatMessage = {
-      id: generateId(),
+      id: newId(),
       role: "user",
       content: trimmed,
       timestamp: new Date(),
     };
+
+    const history: HistoryMessage[] = messagesRef.current
+      .filter((m) => m.id !== "welcome")
+      .slice(-HISTORY_LIMIT)
+      .map((m) => ({ role: m.role, content: m.content }));
 
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
 
     try {
-      const response = await sendChatMessage(trimmed, sessionId.current);
-
-      const assistantMessage: ChatMessage = {
-        id: generateId(),
-        role: "assistant",
-        content: response.message,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
+      const response = await sendChatMessage(trimmed, sessionId.current, history);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          role: "assistant",
+          content: response.message,
+          timestamp: new Date(),
+        },
+      ]);
     } catch {
-      const errorMessage: ChatMessage = {
-        id: generateId(),
-        role: "assistant",
-        content: "Sorry, I'm having trouble right now. Please try again!",
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, errorMessage]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          role: "assistant",
+          content: "Sorry, I'm having trouble right now. Please try again!",
+          timestamp: new Date(),
+        },
+      ]);
     } finally {
       setIsLoading(false);
     }

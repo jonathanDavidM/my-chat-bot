@@ -21,7 +21,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       </div>
       <div
         className={cn(
-          "max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+          "max-w-[75%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
           isUser
             ? "rounded-br-md bg-primary text-primary-foreground"
             : "rounded-bl-md bg-muted text-foreground"
@@ -66,6 +66,8 @@ export default function ChatWidget() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    } else if (e.key === "Escape" && isOpen) {
+      toggle();
     }
   };
 
@@ -89,6 +91,7 @@ export default function ChatWidget() {
             </div>
             <button
               onClick={toggle}
+              aria-label="Close chat"
               className="rounded-full p-1 text-primary-foreground/70 transition-colors hover:bg-white/10 hover:text-primary-foreground"
             >
               <X className="size-5" />
@@ -119,6 +122,7 @@ export default function ChatWidget() {
               <button
                 onClick={sendMessage}
                 disabled={isLoading || !input.trim()}
+                aria-label="Send message"
                 className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
               >
                 <Send className="size-4" />
@@ -131,6 +135,8 @@ export default function ChatWidget() {
       {/* Toggle Button */}
       <button
         onClick={toggle}
+        aria-label={isOpen ? "Close chat" : "Open chat"}
+        aria-expanded={isOpen}
         className={cn(
           "flex size-14 items-center justify-center rounded-full transition-all hover:scale-105",
           isOpen ? "bg-muted text-foreground shadow-lg" : ""

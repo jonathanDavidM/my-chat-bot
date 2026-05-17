@@ -1,53 +1,33 @@
 import { Request, Response } from "express";
-import { GroqService } from "../services/groq.service.js";
+import {
+  chatRequestSchema,
+  checkRateLimit,
+  runChat,
+} from "../lib/chat-handler.js";
 
-let groqService: GroqService | null = null;
-
-function getGroqService() {
-  if (!groqService) {
-    groqService = new GroqService();
-  }
-  return groqService;
+function clientKey(req: Request): string {
+  const fwd = req.headers["x-forwarded-for"];
+  const ip = Array.isArray(fwd) ? fwd[0] : fwd?.split(",")[0]?.trim();
+  return ip || req.ip || "unknown";
 }
 
-export const sendMessage = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const sendMessage = async (req: Request, res: Response): Promise<void> => {
+  const rate = checkRateLimit(clientKey(req));
+  if (!rate.allowed) {
+    if (rate.retryAfterSec) res.setHeader("Retry-After", String(rate.retryAfterSec));
+    res.status(429).json({ success: false, message: "Too many requests" });
+    return;
+  }
+
+  const parsed = chatRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: "Invalid request" });
+    return;
+  }
+
   try {
-    const { message, sessionId } = req.body;
-
-    if (!message || typeof message !== "string") {
-      res.status(400).json({
-        success: false,
-        message: "Message is required",
-      });
-      return;
-    }
-
-    if (!sessionId || typeof sessionId !== "string") {
-      res.status(400).json({
-        success: false,
-        message: "Session ID is required",
-      });
-      return;
-    }
-
-    // Limit message length
-    if (message.length > 500) {
-      res.status(400).json({
-        success: false,
-        message: "Message is too long (max 500 characters)",
-      });
-      return;
-    }
-
-    const reply = await getGroqService().chat(sessionId, message);
-
-    res.json({
-      success: true,
-      message: reply,
-    });
+    const reply = await runChat(parsed.data);
+    res.json({ success: true, message: reply });
   } catch (error) {
     console.error("Chat error:", error);
     res.status(500).json({
