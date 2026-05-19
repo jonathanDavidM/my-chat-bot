@@ -14,11 +14,20 @@ export interface HistoryMessage {
   content: string;
 }
 
+export type ToolStatus = "running" | "done" | "error";
+
+export interface ToolEvent {
+  name: string;
+  status: ToolStatus;
+  detail?: string;
+}
+
 export interface StreamChatOptions {
   message: string;
   sessionId: string;
   history: HistoryMessage[];
   onChunk: (chunk: string) => void;
+  onTool?: (event: ToolEvent) => void;
   signal?: AbortSignal;
 }
 
@@ -27,6 +36,7 @@ export async function streamChatMessage({
   sessionId,
   history,
   onChunk,
+  onTool,
   signal,
 }: StreamChatOptions): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/chat/send`, {
@@ -67,6 +77,17 @@ export async function streamChatMessage({
         const parsed = JSON.parse(line);
         if (parsed.error) throw new Error("Stream interrupted");
         if (typeof parsed.chunk === "string") onChunk(parsed.chunk);
+        if (parsed.tool && typeof parsed.tool.name === "string" && onTool) {
+          const status: ToolStatus =
+            parsed.tool.status === "done" || parsed.tool.status === "error"
+              ? parsed.tool.status
+              : "running";
+          onTool({
+            name: parsed.tool.name,
+            status,
+            detail: typeof parsed.tool.detail === "string" ? parsed.tool.detail : undefined,
+          });
+        }
       } catch (err) {
         if (err instanceof SyntaxError) continue;
         throw err;

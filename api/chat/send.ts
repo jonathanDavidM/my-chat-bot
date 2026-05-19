@@ -56,8 +56,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.flushHeaders?.();
 
   try {
-    for await (const chunk of streamChat(parsed.data)) {
-      res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+    for await (const event of streamChat(parsed.data)) {
+      if (event.type === "text") {
+        res.write(`data: ${JSON.stringify({ chunk: event.value })}\n\n`);
+      } else if (event.type === "tool") {
+        res.write(
+          `data: ${JSON.stringify({
+            tool: { name: event.name, status: event.status, detail: event.detail },
+          })}\n\n`
+        );
+      }
     }
     res.write("data: [DONE]\n\n");
     res.end();

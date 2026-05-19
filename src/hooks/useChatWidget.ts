@@ -1,11 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { streamChatMessage, type HistoryMessage } from "@/lib/api";
+import { streamChatMessage, type HistoryMessage, type ToolStatus } from "@/lib/api";
+
+export interface ToolActivity {
+  name: string;
+  status: ToolStatus;
+}
 
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  toolActivity?: ToolActivity[];
 }
 
 const HISTORY_LIMIT = 10;
@@ -118,6 +124,29 @@ export function useChatWidget() {
         onChunk(chunk) {
           receivedAny = true;
           pending += chunk;
+        },
+        onTool(event) {
+          receivedAny = true;
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== assistantId) return m;
+              const activity = m.toolActivity ? [...m.toolActivity] : [];
+              if (event.status === "running") {
+                activity.push({ name: event.name, status: "running" });
+              } else {
+                const lastIdx = activity
+                  .map((a, i) => (a.name === event.name && a.status === "running" ? i : -1))
+                  .filter((i) => i >= 0)
+                  .pop();
+                if (lastIdx !== undefined) {
+                  activity[lastIdx] = { name: event.name, status: event.status };
+                } else {
+                  activity.push({ name: event.name, status: event.status });
+                }
+              }
+              return { ...m, toolActivity: activity };
+            })
+          );
         },
       });
       streamDone = true;

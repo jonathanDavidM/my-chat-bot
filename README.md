@@ -1,15 +1,28 @@
-# My Chat Bot
+# My Chat Bot — AI Agent for a Portfolio
 
-An embeddable AI chat widget powered by [Groq](https://groq.com/) (Llama 3.3 70B). Built to sit on a portfolio website and answer visitor questions using a personal knowledge base and uploaded documents.
+An embeddable AI **agent** powered by [Groq](https://groq.com/) (Llama 3.3 70B) with function-calling tools. Goes beyond a chatbot: it can fetch live GitHub activity, return structured project details, and send contact-form messages on the visitor's behalf via [Resend](https://resend.com/).
 
 ## Tech Stack
 
 | Layer | Technologies |
 |-------|-------------|
 | Frontend | React 19, TypeScript, Tailwind CSS 4, Vite 8, Lucide Icons |
-| Backend | Express 5, Groq SDK (Llama 3.3 70B) |
+| Backend | Express 5, Groq SDK (Llama 3.3 70B, function calling), Resend |
 | Document Parsing | pdf-parse (PDF), mammoth (DOCX) |
 | Deployment | Vercel (serverless + static) |
+
+## What it does
+
+- **Document-grounded answers** — the system prompt is built from a hand-written knowledge base plus parsed text from your CV and personal docs.
+- **Streaming responses** — Server-Sent Events stream tokens to the client; a typewriter effect on the client smooths out latency.
+- **Agent loop with tool calling** — up to 4 iterations of `model → tool → result → model`, with three tools:
+  - `get_github_activity` — fetches recent public GitHub events
+  - `get_project_details` — returns structured details for a featured project
+  - `send_contact_message` — delivers a contact-form message via Resend (falls back to console log if no Resend key)
+- **Inline-call safety net** — Llama 3.3 occasionally emits tool calls as `<function/...>` XML instead of structured `tool_calls`. The server detects this in the stream, suppresses the malformed text from the UI, and executes the call anyway.
+- **Tool-activity chips** — the UI shows "Checking GitHub activity…" / "Sending message to Jonathan…" chips that resolve to a green check while the tool runs.
+- **Rate limiting** — 20 req/min per IP, in-memory.
+- **Embeddable** — builds to a single IIFE bundle for drop-in use on any website.
 
 ## Project Structure
 
@@ -19,36 +32,30 @@ my-chat-bot/
 │   ├── docs/                        # Drop resume/docs here (PDF, DOCX, TXT, MD)
 │   └── src/
 │       ├── index.ts                 # Express server entry point
-│       ├── routes/
-│       │   └── chat.routes.ts       # Route definitions
-│       ├── controllers/
-│       │   └── chat.controller.ts   # Input validation & request handling
-│       ├── services/
-│       │   ├── groq.service.ts    # Groq chat service (session history)
-│       │   └── docs.service.ts      # Document parser/loader
+│       ├── routes/chat.routes.ts    # Route definitions
+│       ├── controllers/chat.controller.ts  # SSE streaming + rate limit + CORS
+│       ├── lib/chat-handler.ts      # Agent loop: Groq stream + tool calling + inline parser
+│       ├── tools/index.ts           # Tool registry: schemas, Zod validation, executors
 │       └── knowledge/
 │           ├── jonathan.ts          # Static knowledge base (system prompt)
 │           └── compiled-docs.ts     # Auto-generated from server/docs/ at build time
+├── api/
+│   ├── chat/send.ts                 # Vercel serverless mirror of the Express route
+│   └── health.ts
 ├── src/
-│   ├── components/
-│   │   └── ChatWidget.tsx           # Floating chat widget UI
-│   ├── hooks/
-│   │   └── useChatWidget.ts         # Message state & session management
+│   ├── components/ChatWidget.tsx    # Floating widget UI + tool-activity chips
+│   ├── hooks/useChatWidget.ts       # Message state, streaming reveal, tool tracking
 │   ├── lib/
-│   │   ├── api.ts                   # API client (resolves backend URL)
-│   │   └── utils.ts                 # cn() class name utility
-│   ├── assets/
-│   │   ├── ask-me-bubble.png        # Chat bubble icon
-│   │   └── ask-me-logo.png          # Bot avatar
+│   │   ├── api.ts                   # SSE client (text deltas + tool events)
+│   │   └── utils.ts
 │   ├── embed.tsx                    # Standalone embeddable entry point
 │   ├── App.tsx                      # Demo/preview page
 │   └── main.tsx                     # React DOM entry point
-├── scripts/
-│   └── build-knowledge.mjs          # Pre-build: parses docs → compiled-docs.ts
+├── scripts/build-knowledge.mjs      # Pre-build: parses docs → compiled-docs.ts
 ├── vite.config.ts                   # Frontend dev/build config
 ├── vite.embed.config.ts             # Embed bundle config (IIFE output)
 ├── vercel.json                      # Vercel deployment config
-└── package.json                     # Dependencies & scripts
+└── package.json
 ```
 
 ## Architecture
@@ -56,22 +63,26 @@ my-chat-bot/
 ```
 Browser
   └─ ChatWidget.tsx
-       └─ useChatWidget.ts (sessionId in sessionStorage)
-            └─ POST /api/chat/send
-                    │
-            Express Server
-                    │
-            chat.controller.ts
-              • Validates message (required, max 500 chars)
-              • Requires sessionId
-                    │
-            GroqService.chat(sessionId, message)
-              • Retrieves/creates session history (last 20 messages)
-              • Builds system prompt: JONATHAN_KNOWLEDGE + COMPILED_DOCS
-              • Calls Groq API → Llama 3.3 70B
-              • max_tokens: 300 | temperature: 0.7
-                    │
-            {"success": true, "message": "..."}
+       └─ useChatWidget.ts ── sessionId in sessionStorage
+            └─ api.ts (SSE client)
+                 └─ POST /api/chat/send  ──► Express  OR  Vercel serverless
+                                                  │
+                                          chat.controller.ts
+                                            • Origin guard + rate limit
+                                            • Streams SSE: text deltas + tool events
+                                                  │
+                                          chat-handler.ts (streamChat)
+                                            • System prompt = jonathan.ts + compiled-docs.ts + tool instructions
+                                            • Loop up to 4 iterations:
+                                                – Groq stream(model, tools, tool_choice: "auto")
+                                                – Accumulate tool_calls (structured or inline XML)
+                                                – Suppress inline-call markup from text stream
+                                                – Execute matched tools, append results, re-stream
+                                                  │
+                                          tools/index.ts
+                                            • get_github_activity  → fetch GitHub API
+                                            • get_project_details  → in-memory map
+                                            • send_contact_message → Resend (fallback: console)
 ```
 
 ## Getting Started
@@ -86,36 +97,39 @@ npm install
 
 Sign up at [console.groq.com](https://console.groq.com/keys) and create a free API key.
 
-### 3. Configure environment
+### 3. (Optional) Get a Resend API key
 
-Create `server/.env`:
+Without this, `send_contact_message` only logs to the server console. To actually deliver emails:
+
+1. Sign up at [resend.com](https://resend.com/signup) **with the email you want messages delivered to** (the shared `onboarding@resend.dev` sender can only deliver to your Resend account email until you verify a custom domain).
+2. Create a key at [resend.com/api-keys](https://resend.com/api-keys) with **Sending access**.
+
+### 4. Configure environment
+
+Create `server/.env` from `server/.env.example`:
 
 ```env
-PORT=3002
-FRONTEND_URL=http://localhost:5173
 GROQ_API_KEY=your_groq_api_key_here
+
+# Optional — enables email delivery
+RESEND_API_KEY=re_your_resend_key
+# RESEND_FROM=onboarding@resend.dev               # default
+# CONTACT_RECIPIENT=magno.jonathan028@gmail.com   # default
+
+# Optional CORS allowlist for production
+# ALLOWED_ORIGINS=https://your-portfolio.com,https://www.your-portfolio.com
 ```
 
-### 4. Add your documents (optional)
+### 5. Add your documents (optional)
 
-Drop your resume or other docs into `server/docs/`. Supported formats:
+Drop your resume or other docs into `server/docs/`. Supported: `.pdf`, `.docx`, `.doc`, `.txt`, `.md`. They're parsed at build time by `scripts/build-knowledge.mjs` and compiled into `server/src/knowledge/compiled-docs.ts`, which is appended to the system prompt.
 
-- `.pdf`
-- `.docx` / `.doc`
-- `.txt`
-- `.md`
-
-These are parsed at build time by `scripts/build-knowledge.mjs` and compiled into `server/src/knowledge/compiled-docs.ts`, which is then included in the LLM's system prompt.
-
-### 5. Run in development
+### 6. Run in development
 
 ```bash
-# Run both frontend and backend
 npm run dev:all
-
-# Or run separately in two terminals
-npm run dev          # Frontend  →  http://localhost:5173
-npm run dev:server   # Backend   →  http://localhost:3002
+# Frontend  →  http://localhost:5173
+# Backend   →  http://localhost:3002
 ```
 
 ## Scripts
@@ -123,7 +137,7 @@ npm run dev:server   # Backend   →  http://localhost:3002
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start frontend dev server |
-| `npm run dev:server` | Start backend dev server with file-watch |
+| `npm run dev:server` | Start backend dev server with file-watch (tsx) |
 | `npm run dev:all` | Start both concurrently |
 | `npm run build` | Production build (TypeScript + Vite) |
 | `npm run build:embed` | Build standalone embeddable widget bundle |
@@ -133,51 +147,55 @@ npm run dev:server   # Backend   →  http://localhost:3002
 
 ### `POST /api/chat/send`
 
-Send a message to the chatbot.
+Streams a Server-Sent Events response. Each event is a `data: <json>\n\n` line.
 
 **Request body:**
 
 ```json
 {
-  "message": "What are your skills?",
-  "sessionId": "unique-session-id"
+  "message": "What is Jonathan working on lately on GitHub?",
+  "sessionId": "unique-session-id",
+  "history": [
+    { "role": "user", "content": "Hi" },
+    { "role": "assistant", "content": "Hello!" }
+  ]
 }
 ```
 
-**Constraints:** `message` is required, max 500 characters. `sessionId` is required.
+**Constraints:** `message` 1–500 chars. `sessionId` 1–128 chars. `history` optional, max 20 messages, each message max 2000 chars.
 
-**Response:**
+**Event payloads:**
 
-```json
-{
-  "success": true,
-  "message": "Jonathan is skilled in React, TypeScript, Node.js..."
-}
+```text
+data: {"chunk": "Jonathan has been "}            # text delta
+data: {"tool": {"name": "get_github_activity", "status": "running"}}
+data: {"tool": {"name": "get_github_activity", "status": "done"}}
+data: {"chunk": "working on the portfolio repo..."}
+data: [DONE]
 ```
+
+`status` can be `"running"`, `"done"`, or `"error"`. On a fatal stream failure: `data: {"error": "stream_failed"}`.
 
 ### `GET /api/health`
 
-Returns server status and timestamp.
-
 ```json
-{
-  "status": "ok",
-  "timestamp": "2026-04-02T00:00:00.000Z"
-}
+{ "status": "ok", "timestamp": "2026-05-19T14:22:39.105Z" }
 ```
 
-## Session Behavior
+## Adding or Customizing Tools
 
-- A unique `sessionId` is generated per browser tab and stored in `sessionStorage`.
-- Conversation history is stored in memory on the server, scoped to that `sessionId`.
-- History is trimmed to the last **20 messages** per session to prevent context bloat.
-- Session history resets on server restart (no database persistence).
+Tools live in `server/src/tools/index.ts`. To add one:
+
+1. Define a Zod schema for the arguments.
+2. Write an `async function execute(args)` that returns a JSON-serializable result. Return `{ ok: false, error }` on failure so the model can recover.
+3. Add an entry to the `TOOLS` array with a `name`, JSON-Schema `parameters`, and the Zod schema.
+4. Add a line under the `## Tools available` section in `chat-handler.ts` (`TOOL_INSTRUCTIONS`) describing when the model should call it — and any guardrails (e.g., "only call after the visitor has explicitly provided X").
+5. Optionally, add a friendly label in `src/components/ChatWidget.tsx` (`TOOL_LABELS`) for the activity chip.
 
 ## Customizing the Knowledge Base
 
-Edit `server/src/knowledge/jonathan.ts` to update the chatbot's core identity: name, contact info, skills, projects, and response style. This file is the primary system prompt sent to the LLM on every request.
-
-To add document-based context, place files in `server/docs/` and rebuild. The `build-knowledge.mjs` script parses them and writes the extracted text into `compiled-docs.ts`, which is appended to the system prompt automatically.
+- **`server/src/knowledge/jonathan.ts`** — the AI's identity, contact info, response-style rules. Edit freely.
+- **`server/docs/`** — drop resume/notes here. Run `node scripts/build-knowledge.mjs` to regenerate `compiled-docs.ts` (also runs automatically at build time on Vercel).
 
 ## Embedding in Another Website
 
@@ -201,8 +219,6 @@ This outputs:
 <script src="https://your-domain.com/embed/chat-widget.iife.js"></script>
 ```
 
-The widget mounts itself into a `<div id="jonathan-chat-widget">` it creates and renders a floating chat bubble in the bottom-right corner of the page.
-
 **API URL resolution order** (`src/lib/api.ts`):
 1. `window.__CHAT_WIDGET_API_URL__` — set before the script tag
 2. `import.meta.env.VITE_API_URL` — Vite env var (dev/build time)
@@ -210,7 +226,7 @@ The widget mounts itself into a `<div id="jonathan-chat-widget">` it creates and
 
 ## Deployment (Vercel)
 
-The project is pre-configured for Vercel via `vercel.json`.
+The project is pre-configured via `vercel.json`.
 
 ### Build pipeline
 
@@ -223,11 +239,20 @@ cp -r dist-embed dist/embed        # Serve embed bundle from same origin
 
 ### Steps
 
-1. Push the repo to GitHub.
+1. Push to GitHub.
 2. Import the project in [vercel.com](https://vercel.com).
 3. Add environment variables in the Vercel dashboard:
-   - `GROQ_API_KEY` — your Groq API key
-   - `FRONTEND_URL` — your deployed frontend URL (for CORS)
+   - `GROQ_API_KEY` (required)
+   - `RESEND_API_KEY` (optional — enables real email delivery)
+   - `RESEND_FROM` (optional — set this once you've verified a custom domain in Resend; `onboarding@resend.dev` will often hit spam in production)
+   - `CONTACT_RECIPIENT` (optional)
+   - `ALLOWED_ORIGINS` — comma-separated list of allowed origins for CORS, e.g. `https://your-portfolio.com`
 4. Deploy. Vercel auto-deploys on every push to `main`.
 
-API routes (`/api/*`) are rewritten to Vercel serverless functions automatically.
+API routes (`/api/*`) are served by the Vercel serverless functions in the `api/` folder.
+
+## Troubleshooting
+
+- **`<function/...>` XML leaks into the chat bubble.** This means the inline-call detector missed a variant Llama emitted. Add the new pattern to `INLINE_PATTERNS` in `chat-handler.ts`. If it keeps happening, switch the `model` value in `chat-handler.ts` to `openai/gpt-oss-120b` or `moonshotai/kimi-k2-instruct` — both are on Groq and have stronger structured tool-calling than Llama 3.3.
+- **Contact tool says delivered, but no email arrives.** With the shared sender (`onboarding@resend.dev`), Resend only delivers to the address you used to sign up. Either sign up with the recipient email, or verify a custom domain in Resend → Domains.
+- **Frontend can't reach backend in production.** Check `ALLOWED_ORIGINS` covers the deployed frontend URL exactly (including protocol).

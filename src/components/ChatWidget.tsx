@@ -1,8 +1,42 @@
-import { X, Send, User } from "lucide-react";
-import { useChatWidget, type ChatMessage } from "@/hooks/useChatWidget";
+import { X, Send, User, Loader2, Check, AlertCircle } from "lucide-react";
+import { useChatWidget, type ChatMessage, type ToolActivity } from "@/hooks/useChatWidget";
 import { cn } from "@/lib/utils";
 import askMeLogo from "@/assets/ask-me-logo.png";
 import askMeBubble from "@/assets/ask-me-bubble.png";
+
+const TOOL_LABELS: Record<string, string> = {
+  get_github_activity: "Checking GitHub activity",
+  get_project_details: "Looking up project details",
+  send_contact_message: "Sending message to Jonathan",
+};
+
+function toolLabel(name: string) {
+  return TOOL_LABELS[name] ?? name;
+}
+
+function ToolChip({ activity }: { activity: ToolActivity }) {
+  const Icon =
+    activity.status === "running"
+      ? Loader2
+      : activity.status === "error"
+      ? AlertCircle
+      : Check;
+  return (
+    <div
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        activity.status === "running"
+          ? "border-blue-300 bg-blue-50 text-blue-700"
+          : activity.status === "error"
+          ? "border-red-300 bg-red-50 text-red-700"
+          : "border-emerald-300 bg-emerald-50 text-emerald-700"
+      )}
+    >
+      <Icon className={cn("size-3", activity.status === "running" && "animate-spin")} />
+      <span>{toolLabel(activity.name)}</span>
+    </div>
+  );
+}
 
 function TypingDots() {
   return (
@@ -16,7 +50,8 @@ function TypingDots() {
 
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
-  const isEmptyAssistant = !isUser && message.content.length === 0;
+  const hasToolActivity = !isUser && (message.toolActivity?.length ?? 0) > 0;
+  const isEmptyAssistant = !isUser && message.content.length === 0 && !hasToolActivity;
 
   return (
     <div className={cn("flex gap-2", isUser ? "flex-row-reverse" : "flex-row")}>
@@ -28,15 +63,26 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       >
         {isUser ? <User className="size-4" /> : <img src={askMeLogo} alt="Bot" className="size-5 rounded-full" />}
       </div>
-      <div
-        className={cn(
-          "max-w-[75%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
-          isUser
-            ? "rounded-br-md bg-primary text-primary-foreground"
-            : "rounded-bl-md bg-muted text-foreground"
+      <div className="flex max-w-[75%] flex-col items-start gap-1.5">
+        {hasToolActivity && (
+          <div className="flex flex-wrap gap-1.5">
+            {message.toolActivity!.map((a, i) => (
+              <ToolChip key={`${a.name}-${i}`} activity={a} />
+            ))}
+          </div>
         )}
-      >
-        {isEmptyAssistant ? <TypingDots /> : message.content}
+        {(message.content.length > 0 || isEmptyAssistant) && (
+          <div
+            className={cn(
+              "whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+              isUser
+                ? "rounded-br-md bg-primary text-primary-foreground"
+                : "rounded-bl-md bg-muted text-foreground"
+            )}
+          >
+            {isEmptyAssistant ? <TypingDots /> : message.content}
+          </div>
+        )}
       </div>
     </div>
   );
