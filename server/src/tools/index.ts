@@ -22,6 +22,26 @@ const PROJECTS: Record<
     highlights: string[];
   }
 > = {
+  wtg: {
+    name: "WTG — Order Management System",
+    stack: [
+      "Next.js",
+      "TypeScript",
+      "Prisma",
+      "PostgreSQL",
+      "Auth.js",
+      "Zod",
+      "React PDF",
+    ],
+    description:
+      "Full-stack internal platform for managing customer orders, computing per-order profit from items and expenses, and issuing Acknowledgement Receipt (AR) PDFs. Session-based staff auth and a business dashboard.",
+    repo: "https://github.com/jonathanDavidM/wtg-app",
+    highlights: [
+      "Server Actions + Prisma/PostgreSQL for type-safe order, expense, and payment data",
+      "Server-side PDF receipts via @react-pdf/renderer (no headless browser)",
+      "Auth.js credential login with an edge-safe middleware guarding all routes",
+    ],
+  },
   portfolio: {
     name: "Personal Portfolio",
     stack: ["React", "TypeScript", "Tailwind", "Vite", "Shadcn UI"],
@@ -61,7 +81,7 @@ const PROJECTS: Record<
     stack: ["React", "Vite", "Express", "Vercel Serverless", "Groq", "Llama 3.3 70B"],
     description:
       "The chatbot you're talking to. Document-grounded answers with tool calling for live GitHub data and contact form submission.",
-    repo: "https://github.com/jonathanDavidM/jonathan-portfolio",
+    repo: "https://github.com/jonathanDavidM/my-chat-bot",
     highlights: [
       "Agent loop with tool calling on top of Groq",
       "Streaming responses with inline tool-activity chips",
@@ -75,7 +95,9 @@ const projectArgsSchema = z.object({
     .string()
     .min(1)
     .max(64)
-    .describe("Project slug. One of: portfolio, ams-shop, invitation, chatbot."),
+    .describe(
+      "Project slug. One of: wtg, portfolio, ams-shop, invitation, chatbot."
+    ),
 });
 
 const contactArgsSchema = z.object({
@@ -144,6 +166,12 @@ async function getProjectDetails(args: unknown): Promise<unknown> {
   return { ok: true, ...project };
 }
 
+const CONTACT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const CONTACT_MAX_PER_WINDOW = 5;
+let contactWindowStart = Date.now();
+let contactCount = 0;
+const recentContactHashes = new Set<string>();
+
 let resendClient: Resend | null = null;
 function getResend(): Resend | null {
   const key = process.env.RESEND_API_KEY;
@@ -162,8 +190,34 @@ async function sendContactMessage(args: unknown): Promise<unknown> {
     };
   }
   const { name, email, message } = parsed.data;
+
+  // Best-effort per-instance abuse guard: cap total sends and dedupe identical
+  // submissions within a window. (Note: per-serverless-instance, not global.)
+  const now = Date.now();
+  if (now - contactWindowStart > CONTACT_WINDOW_MS) {
+    contactWindowStart = now;
+    contactCount = 0;
+    recentContactHashes.clear();
+  }
+  const dedupeKey = `${email.toLowerCase()}::${message.trim()}`;
+  if (recentContactHashes.has(dedupeKey)) {
+    return { ok: true, delivered: false, note: "That message was already sent." };
+  }
+  if (contactCount >= CONTACT_MAX_PER_WINDOW) {
+    return {
+      ok: false,
+      error:
+        "Contact limit reached for now — please email magno.jonathan028@gmail.com directly.",
+    };
+  }
+  contactCount += 1;
+  recentContactHashes.add(dedupeKey);
+
+  // Redact PII from logs — do not persist the email address or message body.
   console.log(
-    `[contact] ${new Date().toISOString()} from=${name} <${email}>: ${message}`
+    `[contact] ${new Date().toISOString()} name_len=${name.length} email_domain=${
+      email.split("@")[1] ?? "?"
+    } msg_len=${message.length}`
   );
 
   const resend = getResend();

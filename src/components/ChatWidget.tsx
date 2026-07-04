@@ -32,7 +32,12 @@ function ToolChip({ activity }: { activity: ToolActivity }) {
           : "border-emerald-300 bg-emerald-50 text-emerald-700"
       )}
     >
-      <Icon className={cn("size-3", activity.status === "running" && "animate-spin")} />
+      <Icon
+        className={cn(
+          "size-3",
+          activity.status === "running" && "animate-spin motion-reduce:animate-none"
+        )}
+      />
       <span>{toolLabel(activity.name)}</span>
     </div>
   );
@@ -40,10 +45,10 @@ function ToolChip({ activity }: { activity: ToolActivity }) {
 
 function TypingDots() {
   return (
-    <div className="flex gap-1">
-      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:0ms]" />
-      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:150ms]" />
-      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:300ms]" />
+    <div className="flex gap-1" aria-label="Assistant is typing">
+      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:0ms] motion-reduce:animate-none" />
+      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:150ms] motion-reduce:animate-none" />
+      <span className="size-2 animate-bounce rounded-full bg-muted-foreground/50 [animation-delay:300ms] motion-reduce:animate-none" />
     </div>
   );
 }
@@ -61,7 +66,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           isUser ? "bg-primary text-primary-foreground" : "bg-muted"
         )}
       >
-        {isUser ? <User className="size-4" /> : <img src={askMeLogo} alt="Bot" className="size-5 rounded-full" />}
+        {isUser ? <User className="size-4" /> : <img src={askMeLogo} alt="" className="size-5 rounded-full" />}
       </div>
       <div className="flex max-w-[75%] flex-col items-start gap-1.5">
         {hasToolActivity && (
@@ -74,7 +79,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {(message.content.length > 0 || isEmptyAssistant) && (
           <div
             className={cn(
-              "whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+              "whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
               isUser
                 ? "rounded-br-md bg-primary text-primary-foreground"
                 : "rounded-bl-md bg-muted text-foreground"
@@ -95,34 +100,53 @@ export default function ChatWidget() {
     input,
     isLoading,
     messagesEndRef,
+    messagesContainerRef,
     toggle,
     setInput,
     sendMessage,
   } = useChatWidget();
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
-    } else if (e.key === "Escape" && isOpen) {
+    }
+  };
+
+  // Escape closes the dialog from anywhere inside the widget (input, buttons…).
+  const handleWrapperKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && isOpen) {
+      e.stopPropagation();
       toggle();
     }
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3">
+    <div
+      onKeyDown={handleWrapperKeyDown}
+      className="fixed bottom-5 right-5 z-50 flex flex-col items-end gap-3"
+    >
       {/* Chat Panel */}
       {isOpen && (
-        <div className="flex h-[500px] w-[370px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+        <div
+          id="jm-chat-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="jm-chat-title"
+          className="flex h-[500px] w-[370px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+        >
           {/* Header */}
           <div className="flex items-center justify-between bg-primary px-4 py-3">
             <div className="flex items-center gap-2">
-              <img src={askMeLogo} alt="Bot" className="size-6 rounded-full" />
+              <img src={askMeLogo} alt="" className="size-6 rounded-full" />
               <div>
-                <p className="text-sm font-semibold text-primary-foreground">
+                <p
+                  id="jm-chat-title"
+                  className="text-sm font-semibold text-primary-foreground"
+                >
                   Chat with Jonathan's AI
                 </p>
-                <p className="text-xs text-primary-foreground/70">
+                <p className="text-xs text-primary-foreground/90">
                   Ask me anything about Jonathan
                 </p>
               </div>
@@ -130,14 +154,20 @@ export default function ChatWidget() {
             <button
               onClick={toggle}
               aria-label="Close chat"
-              className="rounded-full p-1 text-primary-foreground/70 transition-colors hover:bg-white/10 hover:text-primary-foreground"
+              className="rounded-full p-1 text-primary-foreground/80 transition-colors hover:bg-white/10 hover:text-primary-foreground"
             >
               <X className="size-5" />
             </button>
           </div>
 
           {/* Messages */}
-          <div className="flex-1 space-y-3 overflow-y-auto p-4">
+          <div
+            ref={messagesContainerRef}
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions text"
+            className="flex-1 space-y-3 overflow-y-auto p-4"
+          >
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
@@ -151,8 +181,9 @@ export default function ChatWidget() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
+                onKeyDown={handleInputKeyDown}
                 placeholder="Type a message..."
+                aria-label="Message"
                 className="flex-1 rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 disabled={isLoading}
               />
@@ -174,8 +205,9 @@ export default function ChatWidget() {
         onClick={toggle}
         aria-label={isOpen ? "Close chat" : "Open chat"}
         aria-expanded={isOpen}
+        aria-controls="jm-chat-panel"
         className={cn(
-          "flex size-14 items-center justify-center rounded-full transition-all hover:scale-105",
+          "flex size-14 items-center justify-center rounded-full transition-all hover:scale-105 motion-reduce:transition-none motion-reduce:hover:scale-100",
           isOpen ? "bg-muted text-foreground shadow-lg" : ""
         )}
       >

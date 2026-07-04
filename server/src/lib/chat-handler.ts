@@ -41,9 +41,9 @@ const LOCALHOST_RE = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 export function resolveAllowedOrigin(requestOrigin: string | undefined): string | null {
   if (!requestOrigin) return null;
   if (ALLOWED_ORIGINS.includes(requestOrigin)) return requestOrigin;
-  if (ALLOWED_ORIGINS.length === 0 && LOCALHOST_RE.test(requestOrigin)) {
-    return requestOrigin;
-  }
+  // Always allow localhost / 127.0.0.1 dev origins so the widget works during
+  // local development regardless of the configured production allow-list.
+  if (LOCALHOST_RE.test(requestOrigin)) return requestOrigin;
   return null;
 }
 
@@ -52,7 +52,7 @@ const TOOL_INSTRUCTIONS = `
 ## Tools available
 You have function-calling tools you may call when they help answer the user:
 - get_github_activity — call when the visitor asks what Jonathan has been working on lately, recent commits, or how active he is on GitHub.
-- get_project_details — call when the visitor asks about a specific project (portfolio, ams-shop, invitation, chatbot) and wants more than the brief description above.
+- get_project_details — call when the visitor asks about a specific project (wtg, portfolio, ams-shop, invitation, chatbot) and wants more than the brief description above.
 - send_contact_message — ONLY call after the visitor has explicitly provided their name, email, and message AND confirmed they want it sent. Never invent contact details. If any field is missing, ask for it in plain text first.
 
 CRITICAL: When you use a tool, invoke it via the function-calling API (structured tool_calls in your response). DO NOT write tool calls as text inside your message — never output XML tags like <function/...>, <tool_use>, or JSON like {"name": "...", "arguments": ...} as visible content. The user must not see the call itself, only your final answer after the tool runs.
@@ -134,7 +134,10 @@ function parseInlineToolCalls(text: string): Array<{ name: string; arguments: st
   return out;
 }
 
-export async function* streamChat(input: ChatRequest): AsyncGenerator<ChatEvent> {
+export async function* streamChat(
+  input: ChatRequest,
+  signal?: AbortSignal
+): AsyncGenerator<ChatEvent> {
   const history = input.history ?? [];
   const messages: GroqMessage[] = [
     { role: "system", content: SYSTEM_PROMPT },
@@ -143,6 +146,7 @@ export async function* streamChat(input: ChatRequest): AsyncGenerator<ChatEvent>
   ];
 
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+    if (signal?.aborted) return;
     const stream = await getGroq().chat.completions.create(
       {
         model: "llama-3.3-70b-versatile",
@@ -153,7 +157,7 @@ export async function* streamChat(input: ChatRequest): AsyncGenerator<ChatEvent>
         tool_choice: "auto",
         stream: true,
       },
-      { timeout: GROQ_TIMEOUT_MS }
+      { timeout: GROQ_TIMEOUT_MS, signal }
     );
 
     let assistantText = "";
@@ -162,6 +166,7 @@ export async function* streamChat(input: ChatRequest): AsyncGenerator<ChatEvent>
     const toolCallsByIndex = new Map<number, AccumulatedToolCall>();
 
     for await (const chunk of stream) {
+      if (signal?.aborted) return;
       const choice = chunk.choices[0];
       if (!choice) continue;
       const delta = choice.delta;
@@ -223,11 +228,11 @@ export async function* streamChat(input: ChatRequest): AsyncGenerator<ChatEvent>
 
     if (toolCalls.length === 0) {
       if (suppressTextOutput) {
-        yield {
-          type: "text",
-          value:
-            "(I tried to call a tool but the response was malformed. Could you rephrase?)",
-        };
+        // The "<function" trigger turned out to be literal prose, not a real
+        // tool call. Emit the withheld remainder instead of discarding the
+        // answer with an error message.
+        const idx = assistantText.indexOf(INLINE_CALL_TRIGGER);
+        if (idx >= 0) yield { type: "text", value: assistantText.slice(idx) };
       }
       return;
     }
@@ -270,6 +275,36 @@ export async function* streamChat(input: ChatRequest): AsyncGenerator<ChatEvent>
         content: JSON.stringify(result),
       });
     }
+  }
+
+  // Exhausted tool iterations — do one final pass with tools disabled so the
+  // model can synthesize an answer from the accumulated tool results instead of
+  // dead-ending on the canned note.
+  if (signal?.aborted) return;
+  try {
+    const finalStream = await getGroq().chat.completions.create(
+      {
+        model: "llama-3.3-70b-versatile",
+        messages: messages as Groq.Chat.Completions.ChatCompletionMessageParam[],
+        max_tokens: 400,
+        temperature: 0.7,
+        tool_choice: "none",
+        stream: true,
+      },
+      { timeout: GROQ_TIMEOUT_MS, signal }
+    );
+    let emittedFinal = false;
+    for await (const chunk of finalStream) {
+      if (signal?.aborted) return;
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) {
+        emittedFinal = true;
+        yield { type: "text", value: content };
+      }
+    }
+    if (emittedFinal) return;
+  } catch {
+    // fall through to the note below
   }
 
   yield {

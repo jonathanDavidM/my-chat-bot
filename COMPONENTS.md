@@ -58,7 +58,7 @@ A simple demo/preview page used during local development. Not part of the embedd
 ## Backend
 
 ### `server/src/index.ts`
-The Express server entry point. Sets up an origin-guarding CORS middleware (defaults to common localhost origins if `ALLOWED_ORIGINS` is empty), registers the chat routes, exposes `/api/health`, and listens on the configured `PORT` (default `3002`).
+The Express server entry point (local dev only). Sets up an origin-guarding CORS middleware (localhost/127.0.0.1 origins are always allowed; `ALLOWED_ORIGINS` gates additional production origins), registers the chat routes, exposes `/api/health`, and listens on the configured `PORT` (default `3002`).
 
 **Connects to:** `chat.routes.ts` (registers), `chat-handler.ts` (origin resolver), `server/.env` (config)
 
@@ -126,8 +126,8 @@ Exports:
 
 Tools currently registered:
 - **`get_github_activity`** — fetches `https://api.github.com/users/jonathanDavidM/events/public` (unauthenticated, 6s timeout, ~60 req/hr/IP). Returns the 8 most recent events with type, repo, timestamp, and commit messages.
-- **`get_project_details`** — looks up a slug (`portfolio`, `ams-shop`, `invitation`, `chatbot`) in the in-file `PROJECTS` map. Returns stack, description, repo URL, and highlights.
-- **`send_contact_message`** — Zod-validates `{ name, email, message }`, logs to console, and if `RESEND_API_KEY` is set sends an email via Resend (configurable `RESEND_FROM` and `CONTACT_RECIPIENT`). Without the key it returns `{ ok: true, delivered: false }`.
+- **`get_project_details`** — looks up a slug (`wtg`, `portfolio`, `ams-shop`, `invitation`, `chatbot`) in the in-file `PROJECTS` map. Returns stack, description, repo URL, and highlights.
+- **`send_contact_message`** — Zod-validates `{ name, email, message }`, applies a best-effort per-instance send cap + dedupe, logs a PII-redacted summary, and if `RESEND_API_KEY` is set sends an email via Resend (configurable `RESEND_FROM` and `CONTACT_RECIPIENT`). Without the key it returns `{ ok: true, delivered: false }`.
 
 **Connects to:** `chat-handler.ts` (consumed by the agent loop), Resend API, GitHub API
 

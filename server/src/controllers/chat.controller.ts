@@ -6,9 +6,12 @@ import {
 } from "../lib/chat-handler.js";
 
 function clientKey(req: Request): string {
+  // Use the last (proxy-appended) hop of x-forwarded-for, not the
+  // client-controlled leftmost entry, then fall back to the connection IP.
   const fwd = req.headers["x-forwarded-for"];
-  const ip = Array.isArray(fwd) ? fwd[0] : fwd?.split(",")[0]?.trim();
-  return ip || req.ip || "unknown";
+  const fwdStr = Array.isArray(fwd) ? fwd[fwd.length - 1] : fwd;
+  const lastHop = fwdStr?.split(",").pop()?.trim();
+  return lastHop || req.ip || "unknown";
 }
 
 export const sendMessage = async (req: Request, res: Response): Promise<void> => {

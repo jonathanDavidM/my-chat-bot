@@ -7,8 +7,9 @@
     "dev": "vite",
     "dev:server": "tsx watch server/src/index.ts",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "build:embed": "vite build --config vite.embed.config.ts",
+    "typecheck": "tsc -b && tsc -p tsconfig.server.json",
     "preview": "vite preview"
   },
   "dependencies": {

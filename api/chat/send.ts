@@ -18,9 +18,16 @@ function applyCors(req: VercelRequest, res: VercelResponse) {
 }
 
 function clientKey(req: VercelRequest): string {
+  // Trust only the platform-provided client IP. Vercel overwrites x-real-ip at
+  // the edge, so it is not client-spoofable; the leftmost x-forwarded-for entry
+  // IS attacker-controlled and must never key rate limiting.
+  const realIp = req.headers["x-real-ip"];
+  const real = Array.isArray(realIp) ? realIp[0] : realIp;
+  if (real) return real.trim();
   const fwd = req.headers["x-forwarded-for"];
-  const ip = Array.isArray(fwd) ? fwd[0] : fwd?.split(",")[0]?.trim();
-  return ip || req.socket?.remoteAddress || "unknown";
+  const fwdStr = Array.isArray(fwd) ? fwd[fwd.length - 1] : fwd;
+  const lastHop = fwdStr?.split(",").pop()?.trim();
+  return lastHop || req.socket?.remoteAddress || "unknown";
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -55,8 +62,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
+  // Stop pulling tokens from Groq (and stop writing to a dead socket) if the
+  // client disconnects mid-stream.
+  const abort = new AbortController();
+  let clientGone = false;
+  const onClose = () => {
+    clientGone = true;
+    abort.abort();
+  };
+  req.on("close", onClose);
+
   try {
-    for await (const event of streamChat(parsed.data)) {
+    for await (const event of streamChat(parsed.data, abort.signal)) {
+      if (clientGone) break;
       if (event.type === "text") {
         res.write(`data: ${JSON.stringify({ chunk: event.value })}\n\n`);
       } else if (event.type === "tool") {
@@ -67,11 +85,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         );
       }
     }
-    res.write("data: [DONE]\n\n");
-    res.end();
+    if (!clientGone && !res.writableEnded) {
+      res.write("data: [DONE]\n\n");
+      res.end();
+    }
   } catch (error) {
-    console.error("Chat error:", error);
-    res.write(`data: ${JSON.stringify({ error: "stream_failed" })}\n\n`);
-    res.end();
+    if (!clientGone) console.error("Chat error:", error);
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ error: "stream_failed" })}\n\n`);
+      res.end();
+    }
+  } finally {
+    req.off("close", onClose);
   }
 }

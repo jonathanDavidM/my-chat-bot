@@ -18,9 +18,16 @@ const HISTORY_LIMIT = 10;
 const SESSION_KEY = "chat-widget-session";
 
 const REVEAL_INTERVAL_MS = 28;
-const REVEAL_CHARS_NORMAL = 1;
-const REVEAL_CHARS_CATCHUP = 4;
-const CATCHUP_BUFFER_THRESHOLD = 120;
+const REVEAL_CHARS_NORMAL = 2;
+const CATCHUP_BUFFER_THRESHOLD = 80;
+const AUTOSCROLL_THRESHOLD_PX = 120;
+
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  );
+}
 
 function newId() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -52,10 +59,25 @@ export function useChatWidget() {
   const [isLoading, setIsLoading] = useState(false);
   const sessionId = useRef(getSessionId());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
+  // Autoscroll only when the user is already near the bottom, so scrolling up to
+  // read history isn't yanked back down by streaming updates. Use instant scroll
+  // while streaming or when reduced motion is requested.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const end = messagesEndRef.current;
+    if (!end) return;
+    const container = messagesContainerRef.current;
+    const nearBottom =
+      !container ||
+      container.scrollHeight - container.scrollTop - container.clientHeight <
+        AUTOSCROLL_THRESHOLD_PX;
+    if (nearBottom) {
+      end.scrollIntoView({
+        behavior: prefersReducedMotion() || isLoading ? "auto" : "smooth",
+      });
+    }
+  }, [messages, isLoading]);
 
   const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
 
@@ -103,9 +125,11 @@ export function useChatWidget() {
         }
         return;
       }
+      // Keep pace with the network: drain a large backlog quickly, but stay
+      // typewriter-slow when only a little text is pending.
       const take =
-        streamDone && pending.length > CATCHUP_BUFFER_THRESHOLD
-          ? REVEAL_CHARS_CATCHUP
+        pending.length > CATCHUP_BUFFER_THRESHOLD
+          ? Math.min(40, Math.ceil(pending.length / 6))
           : REVEAL_CHARS_NORMAL;
       const slice = pending.slice(0, take);
       pending = pending.slice(take);
@@ -150,10 +174,30 @@ export function useChatWidget() {
         },
       });
       streamDone = true;
-    } catch {
+      // Stream completed but produced nothing — replace the empty placeholder so
+      // it doesn't show the typing indicator forever.
+      if (!receivedAny) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  content:
+                    "Sorry, I didn't catch that — could you try rephrasing?",
+                }
+              : m
+          )
+        );
+      }
+    } catch (err) {
       streamDone = true;
       window.clearInterval(revealTimer);
       setIsLoading(false);
+      // Surface the real server message (e.g. rate limit) when we have one.
+      const fallback =
+        err instanceof Error && err.message
+          ? err.message
+          : "Sorry, I'm having trouble right now. Please try again!";
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
@@ -161,7 +205,7 @@ export function useChatWidget() {
                 ...m,
                 content: receivedAny
                   ? m.content + pending + "\n\n[response interrupted]"
-                  : "Sorry, I'm having trouble right now. Please try again!",
+                  : fallback,
               }
             : m
         )
@@ -175,6 +219,7 @@ export function useChatWidget() {
     input,
     isLoading,
     messagesEndRef,
+    messagesContainerRef,
     toggle,
     setInput,
     sendMessage,
