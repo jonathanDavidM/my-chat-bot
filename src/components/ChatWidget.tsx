@@ -68,7 +68,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       >
         {isUser ? <User className="size-4" /> : <img src={askMeLogo} alt="" className="size-5 rounded-full" />}
       </div>
-      <div className="flex max-w-[75%] flex-col items-start gap-1.5">
+      <div className="flex min-w-0 max-w-[75%] flex-col items-start gap-1.5">
         {hasToolActivity && (
           <div className="flex flex-wrap gap-1.5">
             {message.toolActivity!.map((a, i) => (
@@ -79,7 +79,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         {(message.content.length > 0 || isEmptyAssistant) && (
           <div
             className={cn(
-              "whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+              "max-w-full whitespace-pre-wrap wrap-anywhere rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
               isUser
                 ? "rounded-br-md bg-primary text-primary-foreground"
                 : "rounded-bl-md bg-muted text-foreground"
@@ -166,7 +166,7 @@ export default function ChatWidget() {
             role="log"
             aria-live="polite"
             aria-relevant="additions text"
-            className="flex-1 space-y-3 overflow-y-auto p-4"
+            className="chat-scroll flex-1 space-y-3 overflow-x-hidden overflow-y-auto p-4"
           >
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
